@@ -94,6 +94,31 @@ impl<W: Write> FileWriter<W> {
     pub fn metadata(&self) -> Option<&ThriftFileMetaData> {
         self.metadata.as_ref()
     }
+
+    /// Returns the current offset within the file.
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Compute the metadata block written at the end of the file.
+    pub fn compute_metadata(
+        &self,
+        key_value_metadata: Option<Vec<KeyValue>>,
+    ) -> Result<ThriftFileMetaData> {
+        // compute file stats
+        let num_rows = self.row_groups.iter().map(|group| group.num_rows).sum();
+        Ok(ThriftFileMetaData::new(
+            self.options.version.into(),
+            self.schema.clone().into_thrift(),
+            num_rows,
+            self.row_groups.clone(),
+            key_value_metadata,
+            self.created_by.clone(),
+            None,
+            None,
+            None,
+        ))
+    }
 }
 
 impl<W: Write> FileWriter<W> {
@@ -172,8 +197,6 @@ impl<W: Write> FileWriter<W> {
                 "End cannot be called twice".to_string(),
             ));
         }
-        // compute file stats
-        let num_rows = self.row_groups.iter().map(|group| group.num_rows).sum();
 
         if self.options.write_statistics {
             // write column indexes (require page statistics)
@@ -214,17 +237,7 @@ impl<W: Write> FileWriter<W> {
                 Result::Ok(())
             })?;
 
-        let metadata = ThriftFileMetaData::new(
-            self.options.version.into(),
-            self.schema.clone().into_thrift(),
-            num_rows,
-            self.row_groups.clone(),
-            key_value_metadata,
-            self.created_by.clone(),
-            None,
-            None,
-            None,
-        );
+        let metadata = self.compute_metadata(key_value_metadata)?;
 
         let len = end_file(&mut self.writer, &metadata)?;
         self.state = State::Finished;
